@@ -207,7 +207,7 @@ const WIN_WAVE  = 10;
 const state = {
   wave:1, houseHp:100, houseMaxHp:100,
   money:0, score:0, paused:false,
-  phase:'playing',   // playing | shop | gameover | win
+  phase:'playing',   // playing | shop | summary | gameover
 
   enemies:[], bullets:[], particles:[], floaters:[],
   gunmen:[], turrets:[], snipers:[], mines:[], airdrops:[],
@@ -277,19 +277,66 @@ const SFX = {
   explode:  ()=>{ noise(.3,.2,160); tone(75,'sine',.2,.01,.3); },
   missile:  ()=>{ noise(.12,.15,600); tone(220,'sawtooth',.08,.01,.2); },
   mExplode: ()=>{ noise(.45,.28,100); tone(60,'sine',.3,.005,.4); noise(.2,.15,300); },
+  cannon:   ()=>{ noise(.5,.12,80); tone(55,'sine',.4,.005,.35); },
+  cExplode: ()=>{ noise(.6,.35,60); tone(45,'sine',.5,.005,.5); noise(.3,.2,200); },
 };
 canvas.addEventListener('click', ()=>{ if(AC.state==='suspended') AC.resume(); },{once:true});
+
+// ═══════════════════════════════════════════════════════════════
+//  PLACEMENT SLOTS  (window/wall positions on the house)
+// ═══════════════════════════════════════════════════════════════
+const PLACEMENT_SLOTS = [
+  // Upper floor windows
+  {x: HOUSE_X+23, y: HOUSE_Y+21, label:'UL'},
+  {x: HOUSE_X+87, y: HOUSE_Y+21, label:'UR'},
+  // Lower floor windows
+  {x: HOUSE_X+23, y: HOUSE_Y+71, label:'LL'},
+  {x: HOUSE_X+82, y: HOUSE_Y+71, label:'LR'},
+  // Door frame / ground floor
+  {x: HOUSE_X+20, y: HOUSE_Y+108, label:'GL'},
+  {x: HOUSE_X+95, y: HOUSE_Y+108, label:'GR'},
+  // Roof edge positions
+  {x: HOUSE_X+50, y: HOUSE_Y-10,  label:'RL'},
+  {x: HOUSE_X+100,y: HOUSE_Y-10,  label:'RR'},
+];
+// Track occupancy
+const slotOccupied = new Array(PLACEMENT_SLOTS.length).fill(false);
+
+function addGunmanAt(slotIdx){
+  const s = PLACEMENT_SLOTS[slotIdx];
+  const fireRate = 80 + (state.gunmenCount % 4) * 5;
+  state.gunmen.push({
+    x:s.x, y:s.y,
+    fireTimer: Math.floor(Math.random()*80),
+    fireRate, dmg:1, range:420, angle:0,
+    slotIdx,
+  });
+  slotOccupied[slotIdx] = true;
+  state.gunmenCount++;
+}
+
+// Legacy auto-place for cheats/non-placement contexts
+function addGunman(){
+  // Find first free slot, else use dynamic position
+  const free = slotOccupied.findIndex(v=>!v);
+  if(free !== -1){ addGunmanAt(free); return; }
+  const s = gunmanPos(state.gunmenCount);
+  const fireRate = 80 + (state.gunmenCount % 4) * 5;
+  state.gunmen.push({x:s.x,y:s.y,fireTimer:Math.floor(Math.random()*80),fireRate,dmg:1,range:420,angle:0,slotIdx:-1});
+  state.gunmenCount++;
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  ENEMY TYPES
 // ═══════════════════════════════════════════════════════════════
 const ET = {
-  grunt:  {label:'',      w:14,h:24, hp:2,  spd:.7,  dmg:4,  $:10,  flying:false, col:'#222'},
-  runner: {label:'',      w:11,h:20, hp:1,  spd:1.9, dmg:2,  $:8,   flying:false, col:'#442200'},
-  tank:   {label:'TANK',  w:22,h:28, hp:9,  spd:.35, dmg:14, $:30,  flying:false, col:'#334'},
-  boss:   {label:'BOSS',  w:32,h:38, hp:28, spd:.28, dmg:22, $:100, flying:false, col:'#600020'},
-  flyer:  {label:'',      w:18,h:14, hp:2,  spd:1.3, dmg:7,  $:15,  flying:true,  flyY:155, col:'#004466'},
-  bomber: {label:'BOMB',  w:24,h:16, hp:5,  spd:.55, dmg:18, $:35,  flying:true,  flyY:105, col:'#220044'},
+  grunt:    {label:'',       w:14,h:24, hp:2,  spd:.7,  dmg:4,  $:10,  flying:false, col:'#222', shield:false},
+  runner:   {label:'',       w:11,h:20, hp:1,  spd:1.9, dmg:2,  $:8,   flying:false, col:'#442200', shield:false},
+  tank:     {label:'TANK',   w:22,h:28, hp:9,  spd:.35, dmg:14, $:30,  flying:false, col:'#334', shield:false},
+  boss:     {label:'BOSS',   w:32,h:38, hp:28, spd:.28, dmg:22, $:100, flying:false, col:'#600020', shield:false},
+  flyer:    {label:'',       w:18,h:14, hp:2,  spd:1.3, dmg:7,  $:15,  flying:true,  flyY:155, col:'#004466', shield:false},
+  bomber:   {label:'BOMB',   w:24,h:16, hp:5,  spd:.55, dmg:18, $:35,  flying:true,  flyY:105, col:'#220044', shield:false},
+  shielder: {label:'SHIELD', w:16,h:24, hp:3,  spd:.6,  dmg:8,  $:20,  flying:false, col:'#1a3a1a', shield:true, shieldHp:4},
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -322,11 +369,25 @@ const SHOP_ITEMS = [
   },
   {
     id:'gunman', name:'Hire Gunman',
-    desc:'Rifleman in the house. Unlimited — each costs more. Auto-shoots nearest enemy.',
+    desc:'Click a window slot on the house to place. Unlimited.',
     cost:()=> 80+state.gunmenCount*25,
     label:()=>`Hire  ($${80+state.gunmenCount*25})  [${state.gunmenCount} hired]`,
-    action(){ addGunman(); },
+    action(){
+      const cost = 80+state.gunmenCount*25;
+      state.placementRefund = cost;
+      state.placingGunman = true;
+      document.getElementById('shop').classList.remove('open');
+      setMsg('Click a window slot on the house to place your gunman  ·  ESC to cancel','#e8c87a');
+    },
     ok:()=> true,
+  },
+  {
+    id:'cannon', name:'Cannon',
+    desc:'Press C to toggle. Click to fire arcing cannonball. 6s reload. Huge blast.',
+    cost:()=> 300,
+    label:()=> state.cannon.owned?'Installed  (press C)':'Install  ($300)',
+    action(){ state.cannon.owned=true; },
+    ok:()=> !state.cannon.owned,
   },
   {
     id:'turret', name:'Build Turret',
@@ -473,7 +534,7 @@ function openShop(){
 }
 function closeShop(){
   document.getElementById('shop').classList.remove('open');
-  endWave();
+  startWave();
 }
 function renderShop(){
   document.getElementById('shop-money-display').textContent='$'+state.money;
@@ -535,8 +596,9 @@ function waveCompose(w){
     if(w>=4&&r<.08)       list.push('boss');
     else if(w>=5&&r<.14)  list.push('bomber');
     else if(w>=3&&r<.22)  list.push('tank');
-    else if(w>=2&&r<.32)  list.push('flyer');
-    else if(w>=2&&r<.45)  list.push('runner');
+    else if(w>=3&&r<.30)  list.push('shielder');
+    else if(w>=2&&r<.38)  list.push('flyer');
+    else if(w>=2&&r<.50)  list.push('runner');
     else                   list.push('grunt');
   }
   return list;
@@ -626,6 +688,7 @@ function spawnEnemy(key){
     spd:t.spd*d.spdMult*(.9+Math.random()*.2),
     dmg:t.dmg, $:t.$, type:t,
     bob:Math.random()*Math.PI*2, slowTimer:0,
+    shieldHp: t.shield ? t.shieldHp : 0,
   });
 }
 
@@ -683,11 +746,51 @@ function explodeMissile(m) {
   SFX.mExplode();
 }
 
+function fireCannon(tx, ty){
+  state.cannonballs.push({ sx:GUN_X, sy:GUN_Y, tx, ty, t:0, speed:0.014 });
+  state.cannon.cooldown = state.cannon.cooldownMax;
+  SFX.cannon && SFX.cannon();
+  state.shake = Math.max(state.shake, 5);
+}
+
+function explodeCannon(x, y){
+  const BLAST = 120;
+  [...state.enemies].filter(e=>Math.hypot(e.x+e.w/2-x,e.y+e.h/2-y)<BLAST).forEach(e=>killEnemy(e));
+  for(let i=0;i<40;i++){
+    const a=Math.random()*Math.PI*2,s=2+Math.random()*9;
+    state.particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-3,
+      life:30+Math.random()*20,maxLife:50,
+      col:i%3===0?'#fff':i%3===1?'#f5a030':'#cc2200',r:3+Math.random()*6});
+  }
+  state.floaters.push({x,y:GROUND_Y-2,text:'',col:'#3a1800',life:300,maxLife:300,crater:true,r:28});
+  state.floaters.push({x,y:y-30,text:'💥 BOOM',col:'#f5a030',life:60,maxLife:60});
+  state.shake = Math.max(state.shake, 14);
+  SFX.cExplode && SFX.cExplode();
+}
+
 canvas.addEventListener('click', e => {
   const r=canvas.getBoundingClientRect();
   const cx=(e.clientX-r.left)*(W/r.width);
   const cy=(e.clientY-r.top)*(H/r.height);
-  // Airdrop claim
+
+  // ── Placement mode: click a slot
+  if(state.placingGunman){
+    let placed=false;
+    PLACEMENT_SLOTS.forEach((s,i)=>{
+      if(!slotOccupied[i]&&Math.hypot(cx-s.x,cy-s.y)<22){
+        addGunmanAt(i); placed=true;
+        setMsg('Gunman placed at '+s.label+' · Wave '+state.wave,'#7ae8a0');
+        state.placingGunman=false;
+        state.placementRefund=0;
+        document.getElementById('shop').classList.add('open');
+        renderShop();
+      }
+    });
+    if(!placed) setMsg('Click a glowing slot on the house  ·  ESC to cancel','#e8c87a');
+    return;
+  }
+
+  // ── Airdrop claim
   for(const a of state.airdrops){
     if(!a.landed||a.claimed) continue;
     if(Math.hypot(cx-a.x,cy-(a.y+Math.sin(a.bob)*4))<22){
@@ -696,8 +799,16 @@ canvas.addEventListener('click', e => {
       pBurst(a.x,a.y,'#e8c87a',8); SFX.buy(); return;
     }
   }
+
   if(state.phase!=='playing'||state.shootCooldown>0) return;
-  fire(mouse.x,mouse.y);
+
+  // ── Cannon or rifle
+  if(state.weapon==='cannon'&&state.cannon.owned){
+    if(state.cannon.cooldown>0){ cToast('Cannon reloading…','#f5a030'); return; }
+    fireCannon(mouse.x, mouse.y);
+  } else {
+    fire(mouse.x, mouse.y);
+  }
 });
 
 function fire(tx,ty){
@@ -754,8 +865,25 @@ function setMsg(t,col='#7a5a30'){
   el.textContent=t; el.style.color=col;
 }
 document.addEventListener('keydown',e=>{
-  // Don't capture keypresses when cheat input is focused
   if(document.activeElement===document.getElementById('cheat-input')) return;
+
+  // Weapon toggle
+  if(e.key==='c'||e.key==='C'){
+    if(state.cannon.owned){
+      state.weapon = state.weapon==='cannon'?'rifle':'cannon';
+      cToast('Weapon: '+state.weapon.toUpperCase(),'#f5a030');
+    }
+  }
+
+  // Cancel placement
+  if(e.key==='Escape'&&state.placingGunman){
+    state.placingGunman=false;
+    state.money+=state.placementRefund; // refund
+    state.placementRefund=0;
+    document.getElementById('shop').classList.add('open');
+    renderShop();
+    setMsg('Placement cancelled — money refunded','#7a5a30');
+  }
 
   kBuf.push(e.key); if(kBuf.length>KON.length) kBuf.shift();
   if(kBuf.join()===KON.join()){
@@ -853,7 +981,7 @@ function killEnemy(e){
 //  UPDATE
 // ═══════════════════════════════════════════════════════════════
 function update(){
-  if(state.paused||state.phase==='gameover'||state.phase==='win'||state.phase==='shop'||state.phase==='summary') return;
+  if(state.paused||state.phase==='gameover'||state.phase==='shop'||state.phase==='summary') return;
   const sl=state.cheats.slowMode?.35:1;
 
   state.shake=Math.max(0,state.shake-.9);
@@ -933,8 +1061,20 @@ function update(){
     state.houseHp = Math.min(state.houseMaxHp, state.houseHp + rate * sl);
   }
 
-  // Missile launcher cooldown
-  if(state.missileLauncher.cooldown > 0) state.missileLauncher.cooldown -= sl;
+  // Cannon cooldown
+  if(state.cannon.cooldown>0) state.cannon.cooldown-=sl;
+
+  // Cannonballs — arc trajectory
+  state.cannonballs=state.cannonballs.filter(b=>{
+    b.t+=b.speed*sl;
+    b.x=b.sx+(b.tx-b.sx)*b.t;
+    b.y=b.sy+(b.ty-b.sy)*b.t - Math.sin(b.t*Math.PI)*160;
+    if(b.t>=1){ explodeCannon(b.tx,b.ty); return false; }
+    // Leave smoke trail
+    if(Math.random()<.4) state.particles.push({x:b.x,y:b.y,vx:(Math.random()-.5)*.5,vy:-.3,
+      life:12,maxLife:12,col:'rgba(100,80,60,.6)',r:4+Math.random()*3});
+    return true;
+  });
 
   // Missiles — move, trail, and explode near target
   state.missiles = state.missiles.filter(m => {
@@ -956,9 +1096,17 @@ function update(){
     for(let i=state.enemies.length-1;i>=0;i--){
       const e=state.enemies[i];
       if(!hit&&b.x>e.x&&b.x<e.x+e.w&&b.y>e.y&&b.y<e.y+e.h){
-        e.hp-=b.dmg; hit=true; pSpark(b.x,b.y,b.col); SFX.hit();
-        state.waveStats.shotsH++;
-        if(e.hp<=0) killEnemy(e);
+        // Shield check — deflect bullets hitting the front (left) face
+        if(e.shieldHp>0 && b.x < e.x+e.w*.4){
+          e.shieldHp-=b.dmg; hit=true;
+          pSpark(b.x,b.y,'#aaaaff');
+          // Shield break
+          if(e.shieldHp<=0){ e.shieldHp=0; pBurst(e.x,e.y+e.h*.5,'#6688aa',6); }
+        } else {
+          e.hp-=b.dmg; hit=true; pSpark(b.x,b.y,b.col); SFX.hit();
+          state.waveStats.shotsH++;
+          if(e.hp<=0) killEnemy(e);
+        }
         break;
       }
     }
@@ -1321,6 +1469,20 @@ function drawEnemy(e){
     ctx.stroke();
   }
 
+  // Shield — wooden board on the left (front-facing) side
+  if(e.shieldHp > 0){
+    const sx = e.x - 7;
+    const sy = ey + e.h*.25 + bob;
+    const sh = e.h * .55;
+    ctx.fillStyle = '#8B5a14';
+    ctx.fillRect(sx, sy, 6, sh);
+    ctx.strokeStyle = '#5a3010'; ctx.lineWidth = 1;
+    ctx.strokeRect(sx, sy, 6, sh);
+    // Shield HP bar
+    ctx.fillStyle = '#300'; ctx.fillRect(sx, sy-5, 6, 3);
+    ctx.fillStyle = '#4a8'; ctx.fillRect(sx, sy-5, 6*(e.shieldHp/e.type.shieldHp), 3);
+  }
+
   // HP bar when damaged
   if(e.hp<e.maxHp){
     ctx.fillStyle='#600'; ctx.fillRect(e.x-2,ey-10,e.w+4,4);
@@ -1391,6 +1553,75 @@ function drawMissiles(){
     ctx.font = '8px Courier New'; ctx.textAlign = 'left';
     ctx.fillText(ready ? '🚀 READY' : '🚀 RELOAD', bx, by - 2);
   }
+}
+
+function drawCannonballs(){
+  for(const b of state.cannonballs){
+    // Shadow on ground
+    const gx=b.sx+(b.tx-b.sx)*b.t;
+    ctx.fillStyle='rgba(0,0,0,.2)';
+    ctx.beginPath(); ctx.ellipse(gx,GROUND_Y,8,3,0,0,Math.PI*2); ctx.fill();
+    // Ball
+    ctx.fillStyle='#222';
+    ctx.beginPath(); ctx.arc(b.x,b.y,7,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#555';
+    ctx.beginPath(); ctx.arc(b.x-2,b.y-2,2.5,0,Math.PI*2); ctx.fill();
+  }
+
+  // Cannon indicator (when weapon=cannon and owned)
+  if(state.cannon.owned){
+    const ready=state.cannon.cooldown<=0;
+    const bw=50,bh=5,bx=8,by=GROUND_Y+26;
+    ctx.fillStyle='#1a0e00'; ctx.fillRect(bx,by,bw,bh);
+    ctx.fillStyle=ready?'#c85000':'#5a2000';
+    ctx.fillRect(bx,by,bw*(1-state.cannon.cooldown/state.cannon.cooldownMax),bh);
+    ctx.fillStyle=ready?'#f5a030':'#885520';
+    ctx.font='8px Courier New'; ctx.textAlign='left';
+    ctx.fillText(ready?'💣 READY':'💣 RELOAD',bx,by-2);
+    // Weapon indicator top-left
+    if(state.weapon==='cannon'){
+      ctx.fillStyle='rgba(245,160,48,.15)'; ctx.fillRect(0,0,W,H);
+      ctx.fillStyle='#f5a030'; ctx.font='bold 10px Courier New'; ctx.textAlign='right';
+      ctx.fillText('[ CANNON MODE — left-click to fire · C to switch ]',W-8,20);
+      ctx.textAlign='left';
+    }
+  }
+}
+
+function drawPlacementSlots(){
+  if(!state.placingGunman) return;
+  // Dim overlay
+  ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fillRect(0,0,W,H);
+  // Instruction
+  ctx.fillStyle='#e8c87a'; ctx.font='bold 13px Courier New'; ctx.textAlign='center';
+  ctx.fillText('Click a slot to place your gunman  ·  ESC to cancel',W/2,30);
+  ctx.textAlign='left';
+  // Slots
+  const pulse=Math.sin(Date.now()/200)*.3+.7;
+  PLACEMENT_SLOTS.forEach((s,i)=>{
+    const occupied=slotOccupied[i];
+    ctx.strokeStyle=occupied?'rgba(200,80,80,.5)':`rgba(100,220,100,${pulse})`;
+    ctx.fillStyle=occupied?'rgba(200,80,80,.15)':`rgba(100,220,100,.15)`;
+    ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(s.x,s.y,18,0,Math.PI*2);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle=occupied?'#e87a7a':'#7ae890';
+    ctx.font='8px Courier New'; ctx.textAlign='center';
+    ctx.fillText(occupied?'●':s.label,s.x,s.y+3);
+    ctx.textAlign='left';
+  });
+  ctx.lineWidth=1;
+}
+
+function drawCraters(){
+  // Persistent crater marks from cannonball landings
+  for(const f of state.floaters){
+    if(!f.crater) continue;
+    ctx.globalAlpha=f.life/f.maxLife*.7;
+    ctx.fillStyle=f.col;
+    ctx.beginPath(); ctx.ellipse(f.x,f.y,f.r,f.r*.35,0,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
 }
 
 function drawFloaters(){
@@ -1468,15 +1699,18 @@ function draw(){
   ctx.save(); ctx.translate(sx,sy);
   ctx.setLineDash([]); ctx.lineWidth=1; ctx.lineCap='butt'; ctx.globalAlpha=1;
   drawBg();
+  drawCraters();
   drawSandbags(); drawMines(); drawAirdrops();
   for(const e of state.enemies) drawEnemy(e);
   drawHouse();
   drawDefenders();
   drawGun();
+  drawCannonballs();
   drawMissiles();
   drawBullets(); drawParticles(); drawFloaters();
   drawHUD(); drawSlowmo();
   ctx.restore();
+  drawPlacementSlots();
   drawOverlay();
 }
 
@@ -1497,11 +1731,14 @@ function restartGame(){
     mineLayerOwned:false,mineLayerTimer:0,mineCount:0,
     houseRepairs:0,airdropTimer:0,sandbagCount:0,
     missileLauncher:{owned:false,cooldown:0,cooldownMax:240},
+    cannon:{owned:false,cooldown:0,cooldownMax:360},
+    weapon:'rifle', placingGunman:false, placementRefund:0,
     spawnQueue:[],spawnTimer:0,spawnInterval:90,waveClearing:false,
     shootCooldown:0,shootCooldownMax:6,shake:0,endless:false,
     waveStats:{kills:0,shotsF:0,shotsH:0,moneyBefore:0,hpBefore:100,hpAfter:100},
     cheats:{godMode:false,noclipDmg:false,slowMode:false,konamiActive:false},
   });
+  slotOccupied.fill(false);
   document.getElementById('shop').classList.remove('open');
   document.getElementById('summary').classList.remove('open');
   startWave();

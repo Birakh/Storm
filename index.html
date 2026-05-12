@@ -6,111 +6,69 @@
 <title>Storm the House</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body {
+
+  html, body {
+    width:100%; height:100%;
     background:#1a0a00;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    min-height:100vh; font-family:'Courier New',monospace; color:#3a2a10; overflow:hidden;
+    display:flex; align-items:flex-start; justify-content:center;
+    font-family:'Courier New',monospace;
+    overflow:hidden;
   }
+
+  /* ── SCALE WRAPPER ──────────────────────────────────────── */
+  #game-wrapper {
+    width:800px;
+    display:flex; flex-direction:column;
+    transform-origin: top center;
+    flex-shrink:0;
+  }
+
+  /* ── HUD ───────────────────────────────────────────────── */
   #hud {
     width:800px; display:flex; justify-content:space-between; align-items:center;
-    padding:8px 4px; background:#2a1800; border-bottom:2px solid #5a3a10;
+    padding:8px 6px; background:#2a1800; border-bottom:2px solid #5a3a10;
   }
   .hud-group { display:flex; gap:20px; align-items:center; }
   .hud-item  { display:flex; flex-direction:column; align-items:center; gap:1px; }
   .hud-label { font-size:9px; letter-spacing:.15em; color:#7a5a30; text-transform:uppercase; }
   .hud-value { font-size:16px; font-weight:bold; color:#e8c87a; }
-  #hud-title { font-size:14px; letter-spacing:.3em; color:#c8a050; font-weight:bold; }
-  canvas { display:block; cursor:crosshair; }
-  #message {
-    width:800px; text-align:center; padding:5px;
-    font-size:10px; letter-spacing:.12em; color:#7a5a30;
-    text-transform:uppercase; background:#2a1800; border-top:2px solid #5a3a10;
-    min-height:22px;
-  }
+  #hud-title { font-size:13px; letter-spacing:.25em; color:#c8a050; font-weight:bold; }
 
-  /* ── WAVE SUMMARY ── */
-  #summary {
-    display:none; position:absolute; width:800px; height:450px;
-    background:rgba(20,10,0,.97); border:2px solid #5a3a10;
-    flex-direction:column; align-items:center; justify-content:center; gap:12px;
-  }
-  #summary.open { display:flex; }
-  #sum-title {
-    font-size:22px; font-weight:bold; letter-spacing:.3em; color:#e8c87a; text-transform:uppercase;
-  }
-  #sum-wave { font-size:10px; letter-spacing:.2em; color:#7a5a30; text-transform:uppercase; }
-  #sum-grid {
-    display:grid; grid-template-columns:1fr 1fr; gap:6px 40px;
-    margin:4px 0;
-  }
-  .sum-row { display:flex; justify-content:space-between; gap:24px; align-items:baseline; }
-  .sum-label { font-size:10px; letter-spacing:.12em; color:#5a4020; text-transform:uppercase; }
-  .sum-val   { font-size:18px; font-weight:bold; color:#e8c87a; }
-  .sum-val.green { color:#7ae890; }
-  .sum-val.red   { color:#e87a50; }
-  #sum-bonus {
-    font-size:13px; font-weight:bold; letter-spacing:.15em; color:#f5a030;
-    min-height:22px; text-transform:uppercase;
-  }
-  #sum-btn {
-    padding:9px 40px; font-family:'Courier New',monospace; font-size:12px;
-    letter-spacing:.2em; color:#e8c87a; background:transparent;
-    border:1px solid #7a5a30; border-radius:2px; cursor:pointer; text-transform:uppercase;
-  }
-  #sum-btn:hover { background:#3a2000; }
-  #cheat-bar {
-    width:800px; display:flex; gap:6px; align-items:center;
-    padding:6px 8px; background:#1a0e00; border-top:1px solid #3a2010;
-  }
-  #cheat-label {
-    font-size:9px; letter-spacing:.15em; color:#5a3a10;
-    text-transform:uppercase; white-space:nowrap;
-  }
-  #cheat-input {
-    flex:1; background:#0e0800; border:1px solid #3a2010; border-radius:2px;
-    color:#e8c87a; font-family:'Courier New',monospace; font-size:13px;
-    padding:5px 8px; outline:none; text-transform:uppercase; letter-spacing:.1em;
-  }
-  #cheat-input:focus { border-color:#7a5a30; }
-  #cheat-input::placeholder { color:#3a2010; font-size:11px; text-transform:none; letter-spacing:0; }
-  #cheat-submit {
-    padding:5px 14px; background:transparent; border:1px solid #5a3a10;
-    border-radius:2px; color:#c8a050; font-family:'Courier New',monospace;
-    font-size:11px; letter-spacing:.1em; cursor:pointer; text-transform:uppercase;
-    transition:background .15s;
-  }
-  #cheat-submit:hover { background:#2a1800; }
-  #cheat-hint {
-    font-size:9px; color:#3a2010; white-space:nowrap; letter-spacing:.05em;
-  }
+  /* ── CANVAS AREA ────────────────────────────────────────── */
+  #canvas-wrap { position:relative; width:800px; }
+  canvas { display:block; cursor:crosshair; width:800px; height:450px; }
 
-  /* ── SHOP ── */
-  #shop {
-    display:none; position:absolute;
+  /* ── OVERLAYS ───────────────────────────────────────────── */
+  #shop, #summary {
+    display:none; position:absolute; top:0; left:0;
     width:800px; height:450px;
-    background:rgba(20,10,0,.96);
-    border:2px solid #5a3a10;
-    flex-direction:column; align-items:center; justify-content:center; gap:14px;
+    flex-direction:column; align-items:center; justify-content:center; gap:12px;
+    z-index:50;
   }
-  #shop.open { display:flex; }
-  #shop h2 { font-size:11px; letter-spacing:.3em; color:#7a5a30; text-transform:uppercase; }
-  #shop-money-display { font-size:24px; font-weight:bold; color:#e8c87a; }
+  #shop    { background:rgba(20,10,0,.97); border:2px solid #5a3a10; }
+  #summary { background:rgba(20,10,0,.97); border:2px solid #5a3a10; }
+  #shop.open    { display:flex; }
+  #summary.open { display:flex; }
+
+  #shop h2 { font-size:11px; letter-spacing:.25em; color:#7a5a30; text-transform:uppercase; }
+  #shop-money-display { font-size:22px; font-weight:bold; color:#e8c87a; }
+
   .shop-grid {
-    display:grid; grid-template-columns:repeat(4,1fr); gap:8px; width:750px;
-    max-height:310px; overflow-y:auto;
+    display:grid; grid-template-columns:repeat(4,1fr); gap:7px; width:760px;
+    max-height:300px; overflow-y:auto;
   }
   .shop-card {
     background:#1a0e00; border:1px solid #3a2a10;
-    padding:10px 12px; border-radius:2px;
-    display:flex; flex-direction:column; gap:5px; transition:border-color .2s;
+    padding:9px 11px; border-radius:2px;
+    display:flex; flex-direction:column; gap:4px;
   }
   .shop-card:hover { border-color:#7a5a30; }
   .shop-card.maxed { opacity:.35; }
-  .shop-name { font-size:11px; font-weight:bold; color:#c8a050; letter-spacing:.05em; }
-  .shop-desc { font-size:9px; color:#5a4020; line-height:1.5; min-height:26px; }
+  .shop-name { font-size:11px; font-weight:bold; color:#c8a050; }
+  .shop-desc { font-size:9px; color:#5a4020; line-height:1.45; min-height:24px; }
   .shop-btn {
-    margin-top:3px; padding:5px 0; font-family:'Courier New',monospace;
-    font-size:10px; letter-spacing:.08em; color:#e8c87a;
+    margin-top:2px; padding:5px 0; font-family:'Courier New',monospace;
+    font-size:10px; letter-spacing:.07em; color:#e8c87a;
     background:transparent; border:1px solid #5a3a10; border-radius:2px;
     cursor:pointer; text-transform:uppercase; transition:background .15s;
   }
@@ -118,26 +76,73 @@
   .shop-btn:disabled { opacity:.3; cursor:not-allowed; }
   .shop-btn.unaffordable { color:#c05030; border-color:#501a0a; }
   #next-wave-btn {
-    padding:10px 44px; font-family:'Courier New',monospace; font-size:12px;
+    margin-top:4px; padding:11px 48px; font-family:'Courier New',monospace; font-size:13px;
     letter-spacing:.2em; color:#e8c87a; background:transparent;
     border:1px solid #7a5a30; border-radius:2px; cursor:pointer; text-transform:uppercase;
-    transition:background .15s;
   }
   #next-wave-btn:hover { background:#3a2000; }
 
-  /* ── CHEAT TOAST ── */
+  /* ── SUMMARY ────────────────────────────────────────────── */
+  #sum-title { font-size:20px; font-weight:bold; letter-spacing:.3em; color:#e8c87a; text-transform:uppercase; }
+  #sum-wave  { font-size:10px; letter-spacing:.2em; color:#7a5a30; text-transform:uppercase; }
+  #sum-grid  { display:grid; grid-template-columns:1fr 1fr; gap:5px 36px; }
+  .sum-row   { display:flex; justify-content:space-between; gap:20px; align-items:baseline; }
+  .sum-label { font-size:10px; letter-spacing:.1em; color:#5a4020; text-transform:uppercase; }
+  .sum-val   { font-size:17px; font-weight:bold; color:#e8c87a; }
+  .sum-val.green { color:#7ae890; }
+  .sum-val.red   { color:#e87a50; }
+  #sum-bonus { font-size:12px; font-weight:bold; letter-spacing:.12em; color:#f5a030; min-height:20px; text-transform:uppercase; }
+  #sum-btn {
+    padding:10px 42px; font-family:'Courier New',monospace; font-size:12px;
+    letter-spacing:.2em; color:#e8c87a; background:transparent;
+    border:1px solid #7a5a30; border-radius:2px; cursor:pointer; text-transform:uppercase;
+  }
+  #sum-btn:hover { background:#3a2000; }
+
+  /* ── CHEAT TOAST ─────────────────────────────────────────── */
   #cheat-toast {
-    position:absolute; top:8px; left:50%; transform:translateX(-50%);
+    position:absolute; top:6px; left:50%; transform:translateX(-50%);
     background:#1a0e00; border:1px solid #7a5a30; color:#e8c87a;
-    font-family:'Courier New',monospace; font-size:11px; letter-spacing:.15em;
+    font-family:'Courier New',monospace; font-size:11px; letter-spacing:.12em;
     padding:5px 16px; border-radius:2px; opacity:0; transition:opacity .3s;
-    pointer-events:none; text-transform:uppercase; white-space:nowrap; z-index:10;
+    pointer-events:none; text-transform:uppercase; white-space:nowrap; z-index:60;
   }
   #cheat-toast.show { opacity:1; }
+
+  /* ── MESSAGE BAR ─────────────────────────────────────────── */
+  #message {
+    width:800px; text-align:center; padding:5px 8px;
+    font-size:10px; letter-spacing:.1em; color:#7a5a30;
+    text-transform:uppercase; background:#2a1800; border-top:2px solid #5a3a10;
+    min-height:22px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+
+  /* ── CHEAT BAR ───────────────────────────────────────────── */
+  #cheat-bar {
+    width:800px; display:flex; gap:6px; align-items:center;
+    padding:6px 8px; background:#1a0e00; border-top:1px solid #3a2010;
+  }
+  #cheat-label { font-size:9px; letter-spacing:.12em; color:#5a3a10; text-transform:uppercase; white-space:nowrap; }
+  #cheat-input {
+    flex:1; background:#0e0800; border:1px solid #3a2010; border-radius:2px;
+    color:#e8c87a; font-family:'Courier New',monospace; font-size:13px;
+    padding:5px 8px; outline:none; text-transform:uppercase; letter-spacing:.1em;
+    min-width:0;
+  }
+  #cheat-input:focus { border-color:#7a5a30; }
+  #cheat-input::placeholder { color:#3a2010; font-size:11px; text-transform:none; letter-spacing:0; }
+  #cheat-submit {
+    padding:5px 12px; background:transparent; border:1px solid #5a3a10;
+    border-radius:2px; color:#c8a050; font-family:'Courier New',monospace;
+    font-size:11px; letter-spacing:.08em; cursor:pointer; text-transform:uppercase; white-space:nowrap;
+  }
+  #cheat-submit:hover { background:#2a1800; }
+  #cheat-hint { font-size:9px; color:#3a2010; letter-spacing:.04em; overflow:hidden; white-space:nowrap; }
 </style>
 </head>
 <body>
 
+<div id="game-wrapper">
 <div id="cheat-toast"></div>
 
 <div id="hud">
@@ -152,7 +157,7 @@
   </div>
 </div>
 
-<div style="position:relative;">
+<div id="canvas-wrap">
   <canvas id="game" width="800" height="450"></canvas>
   <div id="shop">
     <h2>— Between Waves — Spend Your Earnings —</h2>
@@ -160,8 +165,6 @@
     <div class="shop-grid" id="shop-grid"></div>
     <button id="next-wave-btn" onclick="closeShop()">▶  Send Next Wave</button>
   </div>
-
-  <!-- WAVE SUMMARY overlay -->
   <div id="summary">
     <div id="sum-title">WAVE COMPLETE</div>
     <div id="sum-wave"></div>
@@ -170,14 +173,17 @@
     <button id="sum-btn" onclick="closeSummary()">▶  Open Shop</button>
   </div>
 </div>
+
 <div id="message">Click to shoot · Defend the house · Survive 10 waves</div>
 
 <div id="cheat-bar">
   <span id="cheat-label">Cheat</span>
   <input id="cheat-input" type="text" maxlength="12" placeholder="type code + enter…" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" />
   <button id="cheat-submit" onclick="submitCheat()">▶ Enter</button>
-  <span id="cheat-hint">IDDQD · IDKFA · KABOOM · BIGBAD · SLOWMO · WAVESKIP · FULLSHOP · ↑↑↓↓←→←→BA</span>
+  <span id="cheat-hint">IDDQD · IDKFA · KABOOM · BIGBAD · SLOWMO · WAVESKIP · FULLSHOP</span>
 </div>
+
+</div><!-- end #game-wrapper -->
 
 <script>
 // ═══════════════════════════════════════════════════════════════
@@ -1743,6 +1749,19 @@ function restartGame(){
   document.getElementById('summary').classList.remove('open');
   startWave();
 }
+
+function scaleGame(){
+  const wrapper = document.getElementById('game-wrapper');
+  const totalH  = 42 + 450 + 22 + 42; // hud + canvas + message + cheat bar ≈ 556px
+  const scaleX  = window.innerWidth  / 800;
+  const scaleY  = window.innerHeight / totalH;
+  const scale   = Math.min(scaleX, scaleY, 1); // never upscale on desktop
+  wrapper.style.transform = `scale(${scale})`;
+  // Collapse vertical whitespace created by scaling down
+  wrapper.style.marginBottom = `-${totalH * (1 - scale)}px`;
+}
+window.addEventListener('resize', scaleGame);
+scaleGame();
 
 function loop(){ update(); draw(); updateHUD(); requestAnimationFrame(loop); }
 startWave();

@@ -33,6 +33,17 @@
   .hud-label { font-size:9px; letter-spacing:.15em; color:#7a5a30; text-transform:uppercase; }
   .hud-value { font-size:16px; font-weight:bold; color:#e8c87a; }
   #hud-title { font-size:13px; letter-spacing:.25em; color:#c8a050; font-weight:bold; }
+  #missile-btn {
+    padding:5px 12px; background:#3a0a00; border:1px solid #cc3300;
+    border-radius:2px; color:#f5a030; font-family:'Courier New',monospace;
+    font-size:11px; letter-spacing:.08em; cursor:pointer; text-transform:uppercase;
+    transition:background .15s;
+  }
+  #missile-btn:hover  { background:#5a1400; }
+  #missile-btn:active { background:#7a2000; }
+  #missile-btn.ready  { border-color:#f5a030; animation:pulse-btn .8s infinite alternate; }
+  #missile-btn.reload { opacity:.5; cursor:not-allowed; }
+  @keyframes pulse-btn { from { box-shadow:0 0 0 #f5a030; } to { box-shadow:0 0 6px #f5a030; } }
 
   /* ── CANVAS AREA ────────────────────────────────────────── */
   #canvas-wrap { position:relative; width:800px; }
@@ -154,6 +165,7 @@
   <div class="hud-group">
     <div class="hud-item"><span class="hud-label">Money</span><span class="hud-value" id="hud-money">$0</span></div>
     <div class="hud-item"><span class="hud-label">Score</span><span class="hud-value" id="hud-score">0</span></div>
+    <button id="missile-btn" onclick="fireMissileBtn()" style="display:none">🚀 FIRE</button>
   </div>
 </div>
 
@@ -667,36 +679,32 @@ canvas.addEventListener('mousemove',e=>{
 canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
   if(state.phase !== 'playing') return;
-  if(!state.missileLauncher.owned) return;
-  const ml=state.missileLauncher;
-  const anyReady = ml.cooldown<=0 || (ml.count>=2 && ml.cooldown2<=0);
+  const ml = state.missileLauncher;
+  if(!ml.owned) return;
+  const anyReady = ml.cooldown <= 0 || (ml.count >= 2 && ml.cooldown2 <= 0);
   if(!anyReady){ cToast('Missiles reloading…','#f5a030'); return; }
-  const r = canvas.getBoundingClientRect();
+  const r  = canvas.getBoundingClientRect();
   const tx = (e.clientX - r.left) * (W / r.width);
   const ty = (e.clientY - r.top)  * (H / r.height);
   launchMissile(tx, ty);
 });
 
 function launchMissile(tx, ty){
-  const ml=state.missileLauncher;
-  // Pick whichever launcher is ready (prefer launcher 1)
-  const use2 = ml.count>=2 && ml.cooldown>0 && ml.cooldown2<=0;
-  if(ml.cooldown>0 && (ml.count<2 || ml.cooldown2>0)){
-    cToast('Missiles reloading…','#f5a030'); return;
-  }
-  const dx=tx-GUN_X, dy=ty-GUN_Y;
-  // Slight positional offset per launcher
-  const ox = use2 ? 2 : 0;
-  const oy = use2 ? 18 : 0;
+  const ml  = state.missileLauncher;
+  const use2 = ml.count >= 2 && ml.cooldown > 0 && ml.cooldown2 <= 0;
+  const ox   = use2 ? 2 : 0;
+  const oy   = use2 ? 18 : 0;
+  const dx   = tx - GUN_X, dy = ty - GUN_Y;
   state.missiles.push({
-    sx:GUN_X+ox, sy:GUN_Y+oy, tx, ty,
-    t:0, speed:0.013,
-    trail:[], angle:Math.atan2(dy,dx),
+    sx: GUN_X+ox, sy: GUN_Y+oy, tx, ty,
+    t: 0, speed: 0.013,
+    trail: [], angle: Math.atan2(dy, dx),
   });
-  if(use2) ml.cooldown2=ml.cooldownMax;
-  else      ml.cooldown =ml.cooldownMax;
+  if(use2) ml.cooldown2 = ml.cooldownMax;
+  else     ml.cooldown  = ml.cooldownMax;
+  if(AC.state === 'suspended') AC.resume();
   SFX.missile();
-  state.shake=Math.max(state.shake,4);
+  state.shake = Math.max(state.shake, 4);
 }
 
 function explodeMissile(x, y){
@@ -1604,11 +1612,34 @@ function draw(){
   drawOverlay();
 }
 
+function fireMissileBtn(){
+  if(state.phase !== 'playing') return;
+  const ml = state.missileLauncher;
+  if(!ml.owned) return;
+  const anyReady = ml.cooldown <= 0 || (ml.count >= 2 && ml.cooldown2 <= 0);
+  if(!anyReady){ cToast('Missiles reloading…','#f5a030'); return; }
+  if(AC.state === 'suspended') AC.resume();
+  // Fire toward current mouse position (or center of screen if no mouse)
+  launchMissile(mouse.x, mouse.y);
+}
+
 function updateHUD(){
-  document.getElementById('hud-wave').textContent=state.endless?state.wave+' ∞':state.wave+'/'+WIN_WAVE;
-  document.getElementById('hud-hp').textContent=Math.ceil(state.houseHp);
-  document.getElementById('hud-money').textContent='$'+state.money;
-  document.getElementById('hud-score').textContent=state.score.toLocaleString();
+  document.getElementById('hud-wave').textContent  = state.endless ? state.wave+' ∞' : state.wave+'/'+WIN_WAVE;
+  document.getElementById('hud-hp').textContent    = Math.ceil(state.houseHp);
+  document.getElementById('hud-money').textContent = '$'+state.money;
+  document.getElementById('hud-score').textContent = state.score.toLocaleString();
+
+  // Missile button
+  const ml  = state.missileLauncher;
+  const btn = document.getElementById('missile-btn');
+  if(ml.owned){
+    btn.style.display = '';
+    const anyReady = ml.cooldown <= 0 || (ml.count >= 2 && ml.cooldown2 <= 0);
+    btn.textContent = anyReady ? '🚀 FIRE' : '🚀 RELOAD';
+    btn.className   = anyReady ? 'ready' : 'reload';
+  } else {
+    btn.style.display = 'none';
+  }
 }
 
 function restartGame(){

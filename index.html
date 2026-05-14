@@ -229,7 +229,7 @@ const state = {
   sandbagCount:0, sandbagMax:4,
   missiles:[],
   cannonballs:[],
-  missileLauncher:{ owned:false, cooldown:0, cooldownMax:300 }, // 5s reload, arcing
+  missileLauncher:{ owned:false, count:0, cooldown:0, cooldown2:0, cooldownMax:300, blastRadius:120 },
 
   spawnQueue:[], spawnTimer:0, spawnInterval:90, waveClearing:false,
   shootCooldown:0, shootCooldownMax:6,
@@ -357,11 +357,28 @@ const SHOP_ITEMS = [
   },
   {
     id:'missile', name:'Missile Launcher',
-    desc:'RIGHT-CLICK to fire an arcing missile. Huge blast (120px). 5s reload.',
-    cost:()=> 300,
-    label:()=> state.missileLauncher.owned?'Installed  (right-click)':'Install  ($300)',
-    action(){ state.missileLauncher.owned=true; },
-    ok:()=> !state.missileLauncher.owned,
+    desc:'RIGHT-CLICK to fire arcing missile. 5s reload. Buy twice for 2 independent launchers.',
+    cost:()=> state.missileLauncher.count===0 ? 300 : 220,
+    label:()=>{
+      const c=state.missileLauncher.count;
+      if(c===0) return 'Install  ($300)';
+      if(c===1) return '2nd Launcher  ($220)  [1/2]';
+      return 'Max launchers [2/2]';
+    },
+    action(){ const ml=state.missileLauncher; ml.count++; ml.owned=true; },
+    ok:()=> state.missileLauncher.count<2,
+  },
+  {
+    id:'blastradius', name:'Extend Blast Range',
+    desc:'Increase missile blast radius by +30px per upgrade. Max 3 upgrades (120→210px).',
+    cost:()=> 150 + Math.round((state.missileLauncher.blastRadius-120)/30) * 80,
+    label:()=>{
+      const lvl = Math.round((state.missileLauncher.blastRadius-120)/30);
+      if(lvl>=3) return 'Max range  ['+state.missileLauncher.blastRadius+'px]';
+      return `+30px  ($${150+lvl*80})  [${state.missileLauncher.blastRadius}px → ${state.missileLauncher.blastRadius+30}px]`;
+    },
+    action(){ state.missileLauncher.blastRadius+=30; },
+    ok:()=> state.missileLauncher.owned && state.missileLauncher.blastRadius<210,
   },
   {
     id:'turret', name:'Build Turret',
@@ -394,14 +411,6 @@ const SHOP_ITEMS = [
     label:()=>`Hire  ($${90+state.repairWorkers*40})  [${state.repairWorkers} working]`,
     action(){ state.repairWorkers++; },
     ok:()=> true,
-  },
-  {
-    id:'missile', name:'Missile Launcher',
-    desc:'RIGHT-CLICK to fire a missile. Massive blast radius. ~4s cooldown.',
-    cost:()=> 250,
-    label:()=> state.missileLauncher.owned?'Installed  (right-click)':`Install  ($250)`,
-    action(){ state.missileLauncher.owned=true; },
-    ok:()=> !state.missileLauncher.owned,
   },
   {
     id:'dmg', name:'Bigger Bullets',
@@ -659,7 +668,9 @@ canvas.addEventListener('contextmenu', e => {
   e.preventDefault();
   if(state.phase !== 'playing') return;
   if(!state.missileLauncher.owned) return;
-  if(state.missileLauncher.cooldown > 0) return;
+  const ml=state.missileLauncher;
+  const anyReady = ml.cooldown<=0 || (ml.count>=2 && ml.cooldown2<=0);
+  if(!anyReady){ cToast('Missiles reloading…','#f5a030'); return; }
   const r = canvas.getBoundingClientRect();
   const tx = (e.clientX - r.left) * (W / r.width);
   const ty = (e.clientY - r.top)  * (H / r.height);
@@ -667,28 +678,39 @@ canvas.addEventListener('contextmenu', e => {
 });
 
 function launchMissile(tx, ty){
+  const ml=state.missileLauncher;
+  // Pick whichever launcher is ready (prefer launcher 1)
+  const use2 = ml.count>=2 && ml.cooldown>0 && ml.cooldown2<=0;
+  if(ml.cooldown>0 && (ml.count<2 || ml.cooldown2>0)){
+    cToast('Missiles reloading…','#f5a030'); return;
+  }
   const dx=tx-GUN_X, dy=ty-GUN_Y;
+  // Slight positional offset per launcher
+  const ox = use2 ? 2 : 0;
+  const oy = use2 ? 18 : 0;
   state.missiles.push({
-    sx:GUN_X, sy:GUN_Y, tx, ty,
+    sx:GUN_X+ox, sy:GUN_Y+oy, tx, ty,
     t:0, speed:0.013,
     trail:[], angle:Math.atan2(dy,dx),
   });
-  state.missileLauncher.cooldown = state.missileLauncher.cooldownMax;
+  if(use2) ml.cooldown2=ml.cooldownMax;
+  else      ml.cooldown =ml.cooldownMax;
   SFX.missile();
-  state.shake = Math.max(state.shake, 4);
+  state.shake=Math.max(state.shake,4);
 }
 
 function explodeMissile(x, y){
-  const BLAST=120;
+  const BLAST = state.missileLauncher.blastRadius;
   [...state.enemies].filter(e=>Math.hypot(e.x+e.w/2-x,e.y+e.h/2-y)<BLAST)
     .forEach(e=>killEnemy(e));
-  for(let i=0;i<36;i++){
-    const a=Math.random()*Math.PI*2, s=2+Math.random()*8;
+  const particleCount = Math.floor(36 * (BLAST/120));
+  for(let i=0;i<particleCount;i++){
+    const a=Math.random()*Math.PI*2, s=2+Math.random()*8*(BLAST/120);
     state.particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-3,
       life:28+Math.random()*20,maxLife:48,
       col:i%3===0?'#fff':i%3===1?'#f5a030':'#cc2200',r:3+Math.random()*5});
   }
-  state.floaters.push({x,y:GROUND_Y-2,text:'',col:'#3a1800',life:300,maxLife:300,crater:true,r:30});
+  state.floaters.push({x,y:GROUND_Y-2,text:'',col:'#3a1800',life:300,maxLife:300,crater:true,r:BLAST*0.28});
   pFloat(x,y-30,'💥 BOOM','#f5a030');
   state.shake=Math.max(state.shake,14);
   SFX.cExplode && SFX.cExplode();
@@ -941,6 +963,10 @@ function update(){
     const rate = state.repairWorkers * 0.006;
     state.houseHp = Math.min(state.houseMaxHp, state.houseHp + rate * sl);
   }
+
+  // Missile launcher cooldowns
+  if(state.missileLauncher.cooldown  > 0) state.missileLauncher.cooldown  -= sl;
+  if(state.missileLauncher.cooldown2 > 0) state.missileLauncher.cooldown2 -= sl;
 
   // Missiles — arc trajectory, explode at target
   state.missiles = state.missiles.filter(m => {
@@ -1379,6 +1405,73 @@ function drawParticles(){
   ctx.globalAlpha=1;
 }
 
+function drawMissileLaunchers(){
+  const ml = state.missileLauncher;
+  if(!ml.owned) return;
+
+  const launchers = [
+    { y: HOUSE_Y+38, cd: ml.cooldown,  max: ml.cooldownMax },
+    ...(ml.count>=2 ? [{ y: HOUSE_Y+82, cd: ml.cooldown2, max: ml.cooldownMax }] : []),
+  ];
+
+  launchers.forEach((l, idx) => {
+    const lx   = HOUSE_W + 2;   // just right of house wall
+    const ly   = l.y;
+    const pct  = Math.max(0, 1 - l.cd / l.max);
+    const ready = l.cd <= 0;
+
+    // Mount bracket
+    ctx.fillStyle = '#2a2a2a';
+    ctx.fillRect(lx - 8, ly - 10, 10, 20);
+
+    // Barrel tube
+    ctx.fillStyle = ready ? '#666' : '#3a3a3a';
+    ctx.fillRect(lx, ly - 5, 24, 10);
+
+    // End cap
+    ctx.fillStyle = '#222';
+    ctx.fillRect(lx + 22, ly - 6, 4, 12);
+
+    // Rocket inside barrel (visible tip when ready)
+    if(ready){
+      // Rocket body inside barrel
+      ctx.fillStyle = '#aaa';
+      ctx.fillRect(lx + 4, ly - 3, 14, 6);
+      // Red nose peeking out
+      ctx.fillStyle = '#e83020';
+      ctx.beginPath();
+      ctx.moveTo(lx+18, ly-3);
+      ctx.lineTo(lx+23, ly);
+      ctx.lineTo(lx+18, ly+3);
+      ctx.closePath(); ctx.fill();
+      // Fins at back
+      ctx.fillStyle = '#888';
+      ctx.beginPath(); ctx.moveTo(lx+4,ly-3); ctx.lineTo(lx+1,ly-8); ctx.lineTo(lx+6,ly-3); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(lx+4,ly+3); ctx.lineTo(lx+1,ly+8); ctx.lineTo(lx+6,ly+3); ctx.closePath(); ctx.fill();
+      // Ready flash indicator
+      const pulse = Math.sin(Date.now()/200)*0.4+0.6;
+      ctx.fillStyle = `rgba(245,160,48,${pulse})`;
+      ctx.beginPath(); ctx.arc(lx-4, ly, 3, 0, Math.PI*2); ctx.fill();
+    } else {
+      // Reload progress bar on barrel
+      ctx.fillStyle = '#1a0e00';
+      ctx.fillRect(lx+1, ly-4, 20, 8);
+      ctx.fillStyle = '#c85000';
+      ctx.fillRect(lx+1, ly-4, 20*pct, 8);
+      // Dim indicator
+      ctx.fillStyle = '#442200';
+      ctx.beginPath(); ctx.arc(lx-4, ly, 3, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Launcher label + blast radius
+    ctx.fillStyle = ready ? '#f5a030' : '#663300';
+    ctx.font = '7px Courier New'; ctx.textAlign = 'left';
+    ctx.fillText((idx===0?'ML1':'ML2')+' '+state.missileLauncher.blastRadius+'px', lx+27, ly+3);
+  });
+
+  ctx.textAlign = 'left';
+}
+
 function drawMissiles(){
   for(const m of state.missiles){
     // Ground shadow
@@ -1408,18 +1501,7 @@ function drawMissiles(){
     ctx.restore();
   }
 
-  // Reload bar below house
-  if(state.missileLauncher.owned){
-    const ml = state.missileLauncher;
-    const ready = ml.cooldown <= 0;
-    const bw=52, bh=5, bx=8, by=GROUND_Y+16;
-    ctx.fillStyle='#1a0e00'; ctx.fillRect(bx,by,bw,bh);
-    ctx.fillStyle = ready ? '#e83020' : '#662200';
-    ctx.fillRect(bx, by, bw*(1-ml.cooldown/ml.cooldownMax), bh);
-    ctx.fillStyle = ready ? '#f5a030' : '#885520';
-    ctx.font='8px Courier New'; ctx.textAlign='left';
-    ctx.fillText(ready ? '🚀 READY' : '🚀 RELOAD', bx, by-2);
-  }
+  // (reload indicator is now drawn on the house by drawMissileLaunchers)
 }
 
 function drawCraters(){
@@ -1512,6 +1594,7 @@ function draw(){
   drawSandbags(); drawMines(); drawAirdrops();
   for(const e of state.enemies) drawEnemy(e);
   drawHouse();
+  drawMissileLaunchers();
   drawDefenders();
   drawGun();
   drawMissiles();
@@ -1537,7 +1620,7 @@ function restartGame(){
     gunmenCount:0,turretCount:0,sniperCount:0,repairWorkers:0,
     mineLayerOwned:false,mineLayerTimer:0,mineCount:0,
     houseRepairs:0,airdropTimer:0,sandbagCount:0,
-    missileLauncher:{owned:false,cooldown:0,cooldownMax:300},
+    missileLauncher:{owned:false,count:0,cooldown:0,cooldown2:0,cooldownMax:300,blastRadius:120},
     spawnQueue:[],spawnTimer:0,spawnInterval:90,waveClearing:false,
     shootCooldown:0,shootCooldownMax:6,shake:0,endless:false,
     waveStats:{kills:0,shotsF:0,shotsH:0,moneyBefore:0,hpBefore:100,hpAfter:100},
